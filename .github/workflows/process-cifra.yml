@@ -2,8 +2,8 @@ name: Processar Cifras e Atualizar Firebase
 
 on:
   schedule:
-    - cron: '0 10 * * *'   # 07:00 BRT (10:00 UTC) - ajuste se quiser outro horário
-  workflow_dispatch:       # permite rodar manualmente
+    - cron: '0 10 * * *'   # ~07h BRT - ajuste se quiser
+  workflow_dispatch:
 
 jobs:
   process:
@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Instalar dependências do sistema
+      - name: Instalar pacotes do sistema para OCR e PDF
         run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-por libtesseract-dev poppler-utils
@@ -24,10 +24,10 @@ jobs:
       - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
-          pip install gspread google-auth-oauthlib google-auth-httplib2 pytesseract pdf2image python-docx firebase-admin pillow unidecode requests
+          pip install gspread google-auth google-auth-oauthlib google-auth-httplib2 pytesseract pdf2image python-docx firebase-admin pillow unidecode requests
 
-      - name: Rodar script de processamento
+      - name: Executar o script de processamento
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: python process_cifras.py
+        run: python process_cifras.py   # ← EXATAMENTE esse nome! Com underline e "s"
