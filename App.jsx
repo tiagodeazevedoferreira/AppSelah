@@ -1,5 +1,6 @@
+// App.jsx
 import { useState, useEffect } from 'react';
-import { db } from './firebase';
+import { db } from './firebase.js';  // ajuste o caminho se não estiver na mesma pasta
 import { ref, onValue } from 'firebase/database';
 import './App.css';
 
@@ -8,119 +9,171 @@ const tons = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 function transporAcorde(acorde, diff) {
   const raizMatch = acorde.match(/^([A-G]#?b?)/i);
   if (!raizMatch) return acorde;
-  
-  const raiz = raizMatch[1].toUpperCase().replace('BB', 'B').replace('B', 'Bb');
+
+  let raiz = raizMatch[1].toUpperCase();
+  // Normaliza algumas variações comuns
+  if (raiz === 'BB') raiz = 'B';
+  if (raiz === 'B') raiz = 'Bb'; // cuidado: B vira Bb em alguns contextos, mas aqui assumimos padrão
+
   const idx = tons.indexOf(raiz);
   if (idx === -1) return acorde;
 
   const novaRaiz = tons[(idx + diff + 12) % 12];
-  return acorde.replace(raiz, novaRaiz);
+  return acorde.replace(raizMatch[0], novaRaiz);
 }
 
 function transporCifra(texto, tomOriginal, tomNovo) {
-  if (tomOriginal === tomNovo) return texto;
+  if (!tomOriginal || tomOriginal === tomNovo) return texto;
 
   const idxOrig = tons.indexOf(tomOriginal);
   const idxNovo = tons.indexOf(tomNovo);
+  if (idxOrig === -1 || idxNovo === -1) return texto;
+
   const diff = idxNovo - idxOrig;
 
-  // Transpõe acordes (suporta C/G, Am7, etc.)
-  return texto.replace(/\b([A-G]#?b?)(m|°|aug|dim|sus|add|maj|min)?(\d{0,2})(\/[A-G]#?b?)?\b/gi, (match) => {
-    return transporAcorde(match, diff);
-  });
+  // Regex que tenta capturar acordes comuns (incluindo com /baixo, sus, 7, m, etc.)
+  return texto.replace(
+    /\b([A-G]#?b?)(°|º|m|min|maj|aug|dim|sus|add)?(\d{0,2})(\/[A-G]#?b?)?\b/gi,
+    (match) => transporAcorde(match, diff)
+  );
 }
 
 function App() {
   const [musicas, setMusicas] = useState([]);
   const [busca, setBusca] = useState('');
-  const [selecionada, setSelecionada] = useState(null);
-  const [tomAtual, setTomAtual] = useState('');
+  const [musicaSelecionada, setMusicaSelecionada] = useState(null);
+  const [tomSelecionado, setTomSelecionado] = useState('');
 
+  // Carrega as músicas do Firebase
   useEffect(() => {
     const cifrasRef = ref(db, 'cifras');
-    onValue(cifrasRef, (snapshot) => {
+    const unsubscribe = onValue(cifrasRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setMusicas(Object.values(data));
+        const lista = Object.values(data);
+        // Ordena por título (opcional)
+        lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
+        setMusicas(lista);
+      } else {
+        setMusicas([]);
       }
     });
+
+    // Cleanup
+    return () => unsubscribe();
   }, []);
 
-  const filtradas = musicas.filter(m =>
-    m.titulo?.toLowerCase().includes(busca.toLowerCase()) ||
-    m.artista?.toLowerCase().includes(busca.toLowerCase())
+  const musicasFiltradas = musicas.filter((m) =>
+    (m.titulo || '').toLowerCase().includes(busca.toLowerCase()) ||
+    (m.artista || '').toLowerCase().includes(busca.toLowerCase())
   );
 
-  const cifraExibida = selecionada
-    ? transporCifra(selecionada.cifra_original || '', selecionada.tom_original, tomAtual || selecionada.tom_original)
+  const cifraParaExibir = musicaSelecionada
+    ? transporCifra(
+        musicaSelecionada.cifra_original || '',
+        musicaSelecionada.tom_original,
+        tomSelecionado || musicaSelecionada.tom_original
+      )
     : '';
 
+  const voltarAoOriginal = () => {
+    if (musicaSelecionada?.tom_original) {
+      setTomSelecionado(musicaSelecionada.tom_original);
+    }
+  };
+
   return (
-    <div className="container my-4">
+    <div className="container py-4">
+      {/* Cabeçalho */}
       <header className="text-center mb-5">
         <h1 className="display-4 fw-bold text-primary">Selah</h1>
-        <p className="lead text-muted">Cifre. Ajuste. Louve.</p>
+        <p className="lead text-muted fst-italic">
+          Cifre. Ajuste. Louve.
+        </p>
       </header>
 
-      {!selecionada ? (
+      {!musicaSelecionada ? (
+        /* Tela de lista */
         <>
-          <input
-            type="text"
-            className="form-control form-control-lg mb-4"
-            placeholder="Buscar por título ou artista..."
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-          />
+          <div className="mb-4">
+            <input
+              type="text"
+              className="form-control form-control-lg"
+              placeholder="Buscar por título ou artista..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+          </div>
 
-          <div className="row g-3">
-            {filtradas.map(m => (
-              <div key={m.titulo + m.artista} className="col-md-6 col-lg-4">
-                <div className="card h-100 shadow-sm cursor-pointer" onClick={() => {
-                  setSelecionada(m);
-                  setTomAtual(m.tom_original);
-                }}>
-                  <div className="card-body">
-                    <h5 className="card-title">{m.titulo}</h5>
-                    <p className="card-text text-muted">
-                      {m.artista} • Tom: {m.tom_original}
-                    </p>
+          {musicasFiltradas.length === 0 ? (
+            <div className="text-center py-5 text-muted">
+              <h4>Nenhuma música encontrada</h4>
+              <p>Tente outra busca ou verifique se o processamento já ocorreu.</p>
+            </div>
+          ) : (
+            <div className="row g-3">
+              {musicasFiltradas.map((musica) => (
+                <div key={musica.titulo + musica.artista} className="col-md-6 col-lg-4">
+                  <div
+                    className="card h-100 shadow-sm border-0 musica-card"
+                    onClick={() => {
+                      setMusicaSelecionada(musica);
+                      setTomSelecionado(musica.tom_original || 'C');
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <div className="card-body">
+                      <h5 className="card-title fw-bold">{musica.titulo}</h5>
+                      <p className="card-text text-muted">
+                        {musica.artista || 'Artista não informado'}
+                        <br />
+                        <small>Tom original: {musica.tom_original || '?'}</small>
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </>
       ) : (
+        /* Tela de visualização da cifra */
         <div>
-          <button className="btn btn-outline-secondary mb-3" onClick={() => setSelecionada(null)}>
-            ← Voltar à lista
+          <button
+            className="btn btn-outline-secondary mb-4"
+            onClick={() => setMusicaSelecionada(null)}
+          >
+            ← Voltar para a lista
           </button>
 
-          <h2>{selecionada.titulo} – {selecionada.artista}</h2>
-          <p className="text-muted">Tom original: {selecionada.tom_original}</p>
+          <h2 className="mb-2">{musicaSelecionada.titulo}</h2>
+          <h5 className="text-muted mb-4">
+            {musicaSelecionada.artista || '—'}
+          </h5>
 
-          <div className="d-flex gap-3 mb-4 align-items-center">
-            <label className="fw-bold">Tom:</label>
+          <div className="d-flex flex-wrap gap-3 align-items-center mb-4">
+            <label className="fw-bold me-2">Tom atual:</label>
             <select
               className="form-select w-auto"
-              value={tomAtual}
-              onChange={e => setTomAtual(e.target.value)}
+              value={tomSelecionado}
+              onChange={(e) => setTomSelecionado(e.target.value)}
             >
-              {tons.map(t => <option key={t} value={t}>{t}</option>)}
+              {tons.map((tom) => (
+                <option key={tom} value={tom}>
+                  {tom}
+                </option>
+              ))}
             </select>
 
-            {tomAtual !== selecionada.tom_original && (
-              <button
-                className="btn btn-sm btn-outline-primary"
-                onClick={() => setTomAtual(selecionada.tom_original)}
-              >
-                Voltar ao original
+            {tomSelecionado !== musicaSelecionada.tom_original && (
+              <button className="btn btn-outline-primary btn-sm" onClick={voltarAoOriginal}>
+                Voltar ao original ({musicaSelecionada.tom_original})
               </button>
             )}
           </div>
 
-          <pre className="bg-light p-4 rounded border" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '1.1rem' }}>
-            {cifraExibida || 'Cifra não disponível'}
+          <pre className="cifra bg-light p-4 rounded border shadow-sm">
+            {cifraParaExibir || '[Cifra não disponível ou vazia]'}
           </pre>
         </div>
       )}
