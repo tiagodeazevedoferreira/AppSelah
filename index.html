@@ -16,29 +16,34 @@
       border: 1px solid #dee2e6; 
       border-radius: 8px; 
       overflow-x: auto; 
+      font-size: 1.1rem;
+      line-height: 1.6;
     }
-    .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); transition: all 0.2s; }
+    .card { cursor: pointer; transition: all 0.2s; }
+    .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
   </style>
 </head>
 <body>
   <div class="container py-4">
     <header class="text-center mb-5">
       <h1 class="display-4 fw-bold text-primary">Selah</h1>
-      <p class="lead text-muted">Cifre. Ajuste. Louve.</p>
+      <p class="lead text-muted fst-italic">Cifre. Ajuste. Louve.</p>
     </header>
 
-    <div class="mb-4">
-      <input type="text" id="busca" class="form-control form-control-lg" placeholder="Buscar por título ou artista...">
+    <div id="lista-section">
+      <div class="mb-4">
+        <input type="text" id="busca" class="form-control form-control-lg" placeholder="Buscar por título ou artista...">
+      </div>
+
+      <div id="loading" class="text-center py-5">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p>Carregando músicas...</p>
+      </div>
+
+      <div id="lista" class="row g-3"></div>
     </div>
 
-    <div id="loading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status"></div>
-      <p>Carregando músicas...</p>
-    </div>
-
-    <div id="lista" class="row g-3 d-none"></div>
-
-    <div id="visualizar" class="d-none">
+    <div id="visualizar-section" class="d-none">
       <button class="btn btn-outline-secondary mb-4" onclick="voltarLista()">← Voltar para a lista</button>
       <h2 id="titulo"></h2>
       <h5 id="artista" class="text-muted mb-4"></h5>
@@ -62,65 +67,71 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    let musicasList = []; // Armazena todas as músicas para busca
+
     const cifrasRef = ref(db, 'cifras');
     onValue(cifrasRef, (snapshot) => {
       document.getElementById('loading').classList.add('d-none');
       const data = snapshot.val();
       if (!data) {
-        document.getElementById('lista').innerHTML = '<p class="text-center">Nenhuma música encontrada.</p>';
-        document.getElementById('lista').classList.remove('d-none');
+        document.getElementById('lista').innerHTML = '<p class="text-center text-muted py-5">Nenhuma música encontrada no Firebase.</p>';
         return;
       }
 
-      const musicas = Object.values(data);
-      musicas.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
+      musicasList = Object.values(data);
+      musicasList.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
 
+      renderLista(musicasList);
+    }, (error) => {
+      document.getElementById('loading').innerHTML = '<p class="text-danger text-center py-5">Erro ao carregar: ' + error.message + '</p>';
+    });
+
+    function renderLista(musicas) {
       const lista = document.getElementById('lista');
       lista.innerHTML = '';
       musicas.forEach(m => {
         const card = document.createElement('div');
-        card.className = 'col-md-6 col-lg-4';
+        card.className = 'col-md-6 col-lg-4 mb-3';
         card.innerHTML = `
-          <div class="card h-100 shadow-sm cursor-pointer" onclick="mostrarCifra('${m.titulo.replace(/'/g, "\\'")}', '${(m.artista || '').replace(/'/g, "\\'")}', '${m.cifra_original.replace(/'/g, "\\'")}')">
+          <div class="card h-100 shadow-sm" onclick="mostrarCifra('${encodeURIComponent(JSON.stringify(m))}')">
             <div class="card-body">
-              <h5 class="card-title">${m.titulo}</h5>
+              <h5 class="card-title">${m.titulo || 'Sem título'}</h5>
               <p class="card-text text-muted">
-                ${m.artista || '—'} • Tom: ${m.tom_original || '?'}
+                ${m.artista || '—'} <br>
+                <small>Tom: ${m.tom_original || '?'}</small>
               </p>
+              <small class="text-muted">Clique para ver a cifra</small>
             </div>
           </div>
         `;
         lista.appendChild(card);
       });
+    }
 
-      lista.classList.remove('d-none');
+    function mostrarCifra(musicaEncoded) {
+      const m = JSON.parse(decodeURIComponent(musicaEncoded));
+      document.getElementById('lista-section').classList.add('d-none');
+      document.getElementById('visualizar-section').classList.remove('d-none');
 
-      // Busca
-      document.getElementById('busca').addEventListener('input', (e) => {
-        const termo = e.target.value.toLowerCase();
-        const cards = lista.querySelectorAll('.card');
-        cards.forEach(card => {
-          const titulo = card.querySelector('.card-title').textContent.toLowerCase();
-          const artista = card.querySelector('.card-text').textContent.toLowerCase();
-          card.parentElement.style.display = (titulo.includes(termo) || artista.includes(termo)) ? '' : 'none';
-        });
-      });
-    }, (error) => {
-      document.getElementById('loading').innerHTML = '<p class="text-danger">Erro ao carregar: ' + error.message + '</p>';
-    });
-
-    function mostrarCifra(titulo, artista, cifra) {
-      document.getElementById('lista').classList.add('d-none');
-      document.getElementById('visualizar').classList.remove('d-none');
-      document.getElementById('titulo').textContent = titulo;
-      document.getElementById('artista').textContent = artista || '—';
-      document.getElementById('cifra').textContent = cifra || '[Cifra não disponível]';
+      document.getElementById('titulo').textContent = m.titulo || 'Sem título';
+      document.getElementById('artista').textContent = m.artista || '—';
+      document.getElementById('cifra').textContent = m.cifra_original || '[Cifra não disponível]';
     }
 
     function voltarLista() {
-      document.getElementById('visualizar').classList.add('d-none');
-      document.getElementById('lista').classList.remove('d-none');
+      document.getElementById('visualizar-section').classList.add('d-none');
+      document.getElementById('lista-section').classList.remove('d-none');
     }
+
+    // Busca em tempo real
+    document.getElementById('busca').addEventListener('input', (e) => {
+      const termo = e.target.value.toLowerCase();
+      const filtradas = musicasList.filter(m => 
+        (m.titulo || '').toLowerCase().includes(termo) ||
+        (m.artista || '').toLowerCase().includes(termo)
+      );
+      renderLista(filtradas);
+    });
   </script>
 
   <!-- Bootstrap JS -->
