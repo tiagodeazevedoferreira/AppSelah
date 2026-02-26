@@ -1,6 +1,6 @@
 // App.jsx
 import { useState, useEffect } from 'react';
-import { db } from './firebase.js';  // ajuste o caminho se não estiver na mesma pasta
+import { db } from './firebase.js';
 import { ref, onValue } from 'firebase/database';
 import './App.css';
 
@@ -11,9 +11,8 @@ function transporAcorde(acorde, diff) {
   if (!raizMatch) return acorde;
 
   let raiz = raizMatch[1].toUpperCase();
-  // Normaliza algumas variações comuns
   if (raiz === 'BB') raiz = 'B';
-  if (raiz === 'B') raiz = 'Bb'; // cuidado: B vira Bb em alguns contextos, mas aqui assumimos padrão
+  if (raiz === 'B') raiz = 'Bb';
 
   const idx = tons.indexOf(raiz);
   if (idx === -1) return acorde;
@@ -31,7 +30,6 @@ function transporCifra(texto, tomOriginal, tomNovo) {
 
   const diff = idxNovo - idxOrig;
 
-  // Regex que tenta capturar acordes comuns (incluindo com /baixo, sus, 7, m, etc.)
   return texto.replace(
     /\b([A-G]#?b?)(°|º|m|min|maj|aug|dim|sus|add)?(\d{0,2})(\/[A-G]#?b?)?\b/gi,
     (match) => transporAcorde(match, diff)
@@ -43,23 +41,26 @@ function App() {
   const [busca, setBusca] = useState('');
   const [musicaSelecionada, setMusicaSelecionada] = useState(null);
   const [tomSelecionado, setTomSelecionado] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState(null);
 
-  // Carrega as músicas do Firebase
   useEffect(() => {
     const cifrasRef = ref(db, 'cifras');
     const unsubscribe = onValue(cifrasRef, (snapshot) => {
+      setLoading(false);
       const data = snapshot.val();
       if (data) {
         const lista = Object.values(data);
-        // Ordena por título (opcional)
         lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
         setMusicas(lista);
       } else {
         setMusicas([]);
       }
+    }, (error) => {
+      setLoading(false);
+      setErro('Erro ao carregar dados: ' + error.message);
     });
 
-    // Cleanup
     return () => unsubscribe();
   }, []);
 
@@ -82,6 +83,14 @@ function App() {
     }
   };
 
+  if (loading) {
+    return <div className="container text-center py-5"><p>Carregando músicas...</p></div>;
+  }
+
+  if (erro) {
+    return <div className="container text-center py-5"><p>{erro}</p></div>;
+  }
+
   return (
     <div className="container py-4">
       {/* Cabeçalho */}
@@ -93,7 +102,6 @@ function App() {
       </header>
 
       {!musicaSelecionada ? (
-        /* Tela de lista */
         <>
           <div className="mb-4">
             <input
@@ -137,7 +145,6 @@ function App() {
           )}
         </>
       ) : (
-        /* Tela de visualização da cifra */
         <div>
           <button
             className="btn btn-outline-secondary mb-4"
