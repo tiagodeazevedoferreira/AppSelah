@@ -3,55 +3,49 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Selah - Cifre. Ajuste. Louve.</title>
-  <!-- Bootstrap CSS -->
+  <title>Selah</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/Sela_Logo_2.png">
   <style>
-    body { background-color: #f8f9fa; font-family: Arial, sans-serif; }
+    body { background-color: #f8f9fa; padding: 20px; }
     .cifra { 
-      font-family: 'Courier New', Courier, monospace; 
+      font-family: monospace; 
       white-space: pre-wrap; 
-      background: #fff; 
+      background: white; 
       padding: 20px; 
       border: 1px solid #dee2e6; 
       border-radius: 8px; 
       overflow-x: auto; 
       font-size: 1.1rem;
-      line-height: 1.6;
     }
-    .card { cursor: pointer; transition: all 0.2s; }
-    .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+    .card { cursor: pointer; }
+    .card:hover { background-color: #f0f0f0; }
   </style>
 </head>
 <body>
-  <div class="container py-4">
-    <header class="text-center mb-5">
-      <h1 class="display-4 fw-bold text-primary">Selah</h1>
-      <p class="lead text-muted fst-italic">Cifre. Ajuste. Louve.</p>
+  <div class="container">
+    <header class="text-center mb-4">
+      <img src="/Sela_Logo_2.png" alt="Selah" style="max-height: 80px;">
+      <p class="lead text-muted">Cifre. Ajuste. Louve.</p>
     </header>
 
-    <div id="lista-section">
-      <div class="mb-4">
-        <input type="text" id="busca" class="form-control form-control-lg" placeholder="Buscar por título ou artista...">
-      </div>
+    <input type="text" id="busca" class="form-control mb-4" placeholder="Buscar por título ou artista...">
 
-      <div id="loading" class="text-center py-5">
-        <div class="spinner-border text-primary" role="status"></div>
-        <p>Carregando músicas...</p>
-      </div>
-
-      <div id="lista" class="row g-3"></div>
+    <div id="loading" class="text-center py-5">
+      <div class="spinner-border text-primary"></div>
+      <p>Carregando músicas...</p>
     </div>
 
-    <div id="visualizar-section" class="d-none">
-      <button class="btn btn-outline-secondary mb-4" onclick="voltarLista()">← Voltar para a lista</button>
-      <h2 id="titulo"></h2>
-      <h5 id="artista" class="text-muted mb-4"></h5>
+    <div id="lista" class="row g-3"></div>
+
+    <div id="visualizar" class="d-none mt-4">
+      <button class="btn btn-outline-secondary mb-3" onclick="voltar()">← Voltar</button>
+      <h3 id="titulo"></h3>
+      <p id="artista" class="text-muted"></p>
       <pre id="cifra" class="cifra"></pre>
     </div>
   </div>
 
-  <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
     import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
@@ -67,74 +61,66 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    let musicasList = []; // Armazena todas as músicas para busca
+    let musicas = [];
 
-    const cifrasRef = ref(db, 'cifras');
-    onValue(cifrasRef, (snapshot) => {
-      document.getElementById('loading').classList.add('d-none');
+    onValue(ref(db, 'cifras'), (snapshot) => {
+      document.getElementById('loading').style.display = 'none';
       const data = snapshot.val();
-      if (!data) {
-        document.getElementById('lista').innerHTML = '<p class="text-center text-muted py-5">Nenhuma música encontrada no Firebase.</p>';
-        return;
+      if (data) {
+        musicas = Object.values(data);
+        musicas.sort((a, b) => a.titulo.localeCompare(b.titulo));
+        mostrarLista(musicas);
+      } else {
+        document.getElementById('lista').innerHTML = '<p class="text-center text-muted">Nenhuma música encontrada.</p>';
       }
-
-      musicasList = Object.values(data);
-      musicasList.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
-
-      renderLista(musicasList);
-    }, (error) => {
-      document.getElementById('loading').innerHTML = '<p class="text-danger text-center py-5">Erro ao carregar: ' + error.message + '</p>';
     });
 
-    function renderLista(musicas) {
-      const lista = document.getElementById('lista');
-      lista.innerHTML = '';
-      musicas.forEach(m => {
-        const card = document.createElement('div');
-        card.className = 'col-md-6 col-lg-4 mb-3';
-        card.innerHTML = `
-          <div class="card h-100 shadow-sm" onclick="mostrarCifra('${encodeURIComponent(JSON.stringify(m))}')">
+    function mostrarLista(lista) {
+      const container = document.getElementById('lista');
+      container.innerHTML = '';
+      lista.forEach(m => {
+        const col = document.createElement('div');
+        col.className = 'col-md-6 col-lg-4';
+        col.innerHTML = `
+          <div class="card mb-3" onclick="abrirCifra(${JSON.stringify(m)})">
             <div class="card-body">
               <h5 class="card-title">${m.titulo || 'Sem título'}</h5>
-              <p class="card-text text-muted">
-                ${m.artista || '—'} <br>
+              <p class="card-text">
+                ${m.artista || '—'}<br>
                 <small>Tom: ${m.tom_original || '?'}</small>
               </p>
               <small class="text-muted">Clique para ver a cifra</small>
             </div>
           </div>
         `;
-        lista.appendChild(card);
+        container.appendChild(col);
       });
     }
 
-    function mostrarCifra(musicaEncoded) {
-      const m = JSON.parse(decodeURIComponent(musicaEncoded));
-      document.getElementById('lista-section').classList.add('d-none');
-      document.getElementById('visualizar-section').classList.remove('d-none');
+    function abrirCifra(musica) {
+      document.getElementById('lista').style.display = 'none';
+      document.getElementById('visualizar').classList.remove('d-none');
 
-      document.getElementById('titulo').textContent = m.titulo || 'Sem título';
-      document.getElementById('artista').textContent = m.artista || '—';
-      document.getElementById('cifra').textContent = m.cifra_original || '[Cifra não disponível]';
+      document.getElementById('titulo').textContent = musica.titulo || 'Sem título';
+      document.getElementById('artista').textContent = musica.artista || '—';
+      document.getElementById('cifra').textContent = musica.cifra_original || '[Cifra não disponível]';
     }
 
-    function voltarLista() {
-      document.getElementById('visualizar-section').classList.add('d-none');
-      document.getElementById('lista-section').classList.remove('d-none');
+    function voltar() {
+      document.getElementById('visualizar').classList.add('d-none');
+      document.getElementById('lista').style.display = 'block';
     }
 
-    // Busca em tempo real
-    document.getElementById('busca').addEventListener('input', (e) => {
+    document.getElementById('busca').addEventListener('input', e => {
       const termo = e.target.value.toLowerCase();
-      const filtradas = musicasList.filter(m => 
+      const filtradas = musicas.filter(m => 
         (m.titulo || '').toLowerCase().includes(termo) ||
         (m.artista || '').toLowerCase().includes(termo)
       );
-      renderLista(filtradas);
+      mostrarLista(filtradas);
     });
   </script>
 
-  <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
