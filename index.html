@@ -104,16 +104,34 @@
         container.appendChild(col);
       });
     }
+function abrirCifra(m) {
+  document.getElementById('lista').style.display = 'none';
+  document.getElementById('visualizar').classList.remove('d-none');
 
-    function abrirCifra(m) {
-      document.getElementById('lista-section').classList.add('d-none');
-      document.getElementById('visualizar-section').classList.remove('d-none');
+  document.getElementById('titulo').textContent = m.titulo || 'Sem título';
+  document.getElementById('info').textContent = `${m.artista || '—'} • Tom: ${m.tom_original || '?'}`;
 
-      document.getElementById('titulo').textContent = m.titulo || 'Sem título';
-      document.getElementById('info').textContent = `${m.artista || '—'} • Tom: ${m.tom_original || '?'}`;
-      document.getElementById('cifra').textContent = m.cifra_original || '[Cifra não disponível]';
-    }
+  // Usa o novo campo parseado
+  let textoCifra = '[Cifra não disponível]';
+  if (m.cifra_parseada && Array.isArray(m.cifra_parseada) && m.cifra_parseada.length > 0) {
+    textoCifra = '';
+    m.cifra_parseada.forEach(linha => {
+      let linhaTexto = '';
+      if (linha.acordes && linha.acordes.length > 0) {
+        linha.acordes.forEach(a => {
+          linhaTexto += a.acorde.padEnd(10, ' '); // espaçamento aproximado
+        });
+        linhaTexto += '\n';
+      }
+      linhaTexto += linha.letra || '';
+      textoCifra += linhaTexto + '\n';
+    });
+  } else if (m.cifra_original) {
+    textoCifra = m.cifra_original; // fallback se ainda existir
+  }
 
+  document.getElementById('cifra').textContent = textoCifra.trim();
+}
     function voltar() {
       document.getElementById('visualizar-section').classList.add('d-none');
       document.getElementById('lista-section').classList.remove('d-none');
