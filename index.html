@@ -1,13 +1,129 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Selah</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- Importa o main.jsx que está na raiz -->
-    <script type="module" src="/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Selah - Cifre. Ajuste. Louve.</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; font-family: Arial, sans-serif; }
+    .cifra { 
+      font-family: 'Courier New', Courier, monospace; 
+      white-space: pre-wrap; 
+      background: #fff; 
+      padding: 20px; 
+      border: 1px solid #dee2e6; 
+      border-radius: 8px; 
+      overflow-x: auto; 
+    }
+    .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); transition: all 0.2s; }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <header class="text-center mb-5">
+      <h1 class="display-4 fw-bold text-primary">Selah</h1>
+      <p class="lead text-muted">Cifre. Ajuste. Louve.</p>
+    </header>
+
+    <div class="mb-4">
+      <input type="text" id="busca" class="form-control form-control-lg" placeholder="Buscar por título ou artista...">
+    </div>
+
+    <div id="loading" class="text-center py-5">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p>Carregando músicas...</p>
+    </div>
+
+    <div id="lista" class="row g-3 d-none"></div>
+
+    <div id="visualizar" class="d-none">
+      <button class="btn btn-outline-secondary mb-4" onclick="voltarLista()">← Voltar para a lista</button>
+      <h2 id="titulo"></h2>
+      <h5 id="artista" class="text-muted mb-4"></h5>
+      <pre id="cifra" class="cifra"></pre>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getDatabase, ref, onValue } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDcj5ebPcBXw5Ev6SQHXzxToCGfINprj_A",
+      authDomain: "appmusicasimosp.firebaseapp.com",
+      databaseURL: "https://appmusicasimosp-default-rtdb.firebaseio.com",
+      projectId: "appmusicasimosp",
+      storageBucket: "appmusicasimosp.appspot.com",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const cifrasRef = ref(db, 'cifras');
+    onValue(cifrasRef, (snapshot) => {
+      document.getElementById('loading').classList.add('d-none');
+      const data = snapshot.val();
+      if (!data) {
+        document.getElementById('lista').innerHTML = '<p class="text-center">Nenhuma música encontrada.</p>';
+        document.getElementById('lista').classList.remove('d-none');
+        return;
+      }
+
+      const musicas = Object.values(data);
+      musicas.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'));
+
+      const lista = document.getElementById('lista');
+      lista.innerHTML = '';
+      musicas.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'col-md-6 col-lg-4';
+        card.innerHTML = `
+          <div class="card h-100 shadow-sm cursor-pointer" onclick="mostrarCifra('${m.titulo.replace(/'/g, "\\'")}', '${(m.artista || '').replace(/'/g, "\\'")}', '${m.cifra_original.replace(/'/g, "\\'")}')">
+            <div class="card-body">
+              <h5 class="card-title">${m.titulo}</h5>
+              <p class="card-text text-muted">
+                ${m.artista || '—'} • Tom: ${m.tom_original || '?'}
+              </p>
+            </div>
+          </div>
+        `;
+        lista.appendChild(card);
+      });
+
+      lista.classList.remove('d-none');
+
+      // Busca
+      document.getElementById('busca').addEventListener('input', (e) => {
+        const termo = e.target.value.toLowerCase();
+        const cards = lista.querySelectorAll('.card');
+        cards.forEach(card => {
+          const titulo = card.querySelector('.card-title').textContent.toLowerCase();
+          const artista = card.querySelector('.card-text').textContent.toLowerCase();
+          card.parentElement.style.display = (titulo.includes(termo) || artista.includes(termo)) ? '' : 'none';
+        });
+      });
+    }, (error) => {
+      document.getElementById('loading').innerHTML = '<p class="text-danger">Erro ao carregar: ' + error.message + '</p>';
+    });
+
+    function mostrarCifra(titulo, artista, cifra) {
+      document.getElementById('lista').classList.add('d-none');
+      document.getElementById('visualizar').classList.remove('d-none');
+      document.getElementById('titulo').textContent = titulo;
+      document.getElementById('artista').textContent = artista || '—';
+      document.getElementById('cifra').textContent = cifra || '[Cifra não disponível]';
+    }
+
+    function voltarLista() {
+      document.getElementById('visualizar').classList.add('d-none');
+      document.getElementById('lista').classList.remove('d-none');
+    }
+  </script>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
 </html>
