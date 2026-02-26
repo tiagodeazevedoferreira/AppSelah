@@ -9,9 +9,9 @@ from unidecode import unidecode
 import pytesseract
 from pdf2image import convert_from_bytes
 from docx import Document
-import requests
 from PIL import Image
 import io
+import requests
 
 # Configurações fixas
 SHEET_ID = '1OuMaJ-nyFujxE-QNoZCE8iyaPEmRfJLHWr5DfevX6cc'
@@ -54,26 +54,58 @@ def detectar_tom_original(texto):
 
 def extrair_texto_do_arquivo(url):
     try:
-        response = requests.get(url, timeout=20)
-        response.raise_for_status()
-        content_type = response.headers.get('content-type', '').lower()
-        content = response.content
+        # Ajuste automático para Postimg: adiciona ?dl=1 para download direto
+        if 'postimg.cc' in url.lower() or 'i.postimg.cc' in url.lower():
+            if '?dl=1' not in url and '&dl=1' not in url:
+                if '?' in url:
+                    url += '&dl=1'
+                else:
+                    url += '?dl=1'
+            print(f"Link Postimg ajustado para download direto: {url}")
 
-        if 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' in content_type or url.endswith('.docx'):
-            doc = Document(io.BytesIO(content))
-            return '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, timeout=30, headers=headers, allow_redirects=True, stream=True)
 
-        elif 'pdf' in content_type or url.endswith('.pdf'):
-            images = convert_from_bytes(content)
-        else:  # imagem (jpg, png, etc)
-            img = Image.open(io.BytesIO(content))
-            images = [img]
+        print(f"Status do download: {response.status_code} | URL final: {response.url}")
+        print(f"Content-Type recebido: {response.headers.get('Content-Type', 'desconhecido')}")
+        print(f"Tamanho do content: {len(response.content)} bytes")
 
-        texto_completo = ''
-        for img in images:
-            texto_completo += pytesseract.image_to_string(img, lang='por+eng', config='--psm 6') + '\n\n'
-        return texto_completo.strip()
+        if response.status_code != 200:
+            return f"[ERRO Download] Status {response.status_code} - {response.text[:200]}"
 
+        content = b''
+        for chunk in response.iter_content(chunk_size=8192):
+            content += chunk
+
+        # Detecta se veio HTML de erro/preview
+        try:
+            content_preview = content[:2000].decode('utf-8', errors='ignore').lower()
+            if '<html' in content_preview or 'postimg' in content_preview or 'download original image' in content_preview or 'couldn\'t preview' in content_preview:
+                return "[ERRO] Recebido página HTML de preview em vez da imagem direta. Verifique se o link é raw/direct."
+        except:
+            pass
+
+        # Tenta abrir como imagem
+        file_io = io.BytesIO(content)
+        try:
+            img = Image.open(file_io)
+            texto = pytesseract.image_to_string(img, lang='por+eng', config='--psm 6')
+            return texto.strip() or "[Imagem baixada, mas nenhum texto detectado]"
+        except Exception as img_err:
+            print(f"Erro ao abrir como imagem: {str(img_err)}")
+            # Tenta como PDF (caso raro)
+            file_io.seek(0)
+            if b'%PDF' in content[:10]:
+                images = convert_from_bytes(content)
+                texto = ''
+                for img in images:
+                    texto += pytesseract.image_to_string(img, lang='por+eng') + '\n\n'
+                return texto.strip()
+            else:
+                return f"[ERRO] Não é imagem/PDF válido: {str(img_err)} - Tamanho: {len(content)} bytes"
+
+    except requests.exceptions.RequestException as req_err:
+        return f"[ERRO de rede] {str(req_err)}"
     except Exception as e:
         return f"[ERRO AO EXTRAIR] {str(e)[:200]}"
 
