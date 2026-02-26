@@ -40,44 +40,43 @@ def gerar_slug(titulo, artista):
     return text or 'sem-titulo'
 
 def detectar_tom_original(texto):
-    # Procura por "Tom: C" ou similar
     match = re.search(r'(?:tom|tonalidade|key)\s*[:=]\s*([A-G]#?b?)', texto, re.IGNORECASE)
     if match:
         tom = match.group(1).upper().replace('BB', 'B').replace('B', 'Bb')
         return tom if tom in ['C','C#','Db','D','D#','Eb','E','F','F#','Gb','G','G#','Ab','A','A#','Bb','B'] else None
     
-    # Primeiro acorde plausível
     acordes_inicio = re.findall(r'\b([A-G]#?b?)(m|°|aug|dim|sus|add|maj|min|7|9|11|13)?\b', texto[:500], re.IGNORECASE)
     if acordes_inicio:
         return acordes_inicio[0][0].upper()
     return None
 
-# Pós-processamento simples para erros comuns do OCR
-def corrigir_acorde_ocr(acorde):
+# Biblioteca de correções (vamos adicionar mais conforme erros aparecerem)
+def corrigir_acorde(acorde):
     correcoes = {
+        'DIFE': 'D/F#',
+        'DI FE': 'D/F#',
+        'D IFE': 'D/F#',
         'Fim': 'F#m',
         'Fam': 'F#m',
         'Fame': 'F#m',
         'F#m D': 'F#m/D',
-        'DIFE': 'D/F#',
-        'D IFE': 'D/F#',
-        'DI FE': 'D/F#',
+        'Fame D': 'F#m/D',
         'F#M': 'F#m',
-        'F# m': 'F#m',
-        'Bb': 'A#',  # ou Bb se preferir manter
-        'rn': 'm',   # rn comum para m
+        'rn': 'm',
+        'I': '/',
+        'l': '/',
+        ' | ': '/',
+        'E#': '#',  # contexto F#m, Bb
     }
     for errado, correto in correcoes.items():
         acorde = acorde.replace(errado, correto)
-    # Corrige / virando I ou l
-    acorde = acorde.replace('I', '/').replace('l', '/').replace(' | ', '/')
     return acorde.strip()
 
 def extrair_texto_do_arquivo(url):
     try:
-        # Ajuste para Postimg (dl=1)
-        if 'postimg.cc' in url.lower() or 'i.postimg.cc' in url.lower():
-            if '?dl=1' not in url and '&dl=1' not in url:
+        # Ajuste Postimg
+        if 'postimg.cc' in url.lower():
+            if '?dl=1' not in url:
                 url += '&dl=1' if '?' in url else '?dl=1'
 
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -88,42 +87,62 @@ def extrair_texto_do_arquivo(url):
 
         content = response.content
 
-        # Detecta HTML indesejado
+        # Detecta HTML
         preview = content[:1000].decode('utf-8', errors='ignore').lower()
         if '<html' in preview or 'postimg' in preview or 'download original' in preview:
             return {"erro": "HTML de preview detectado"}
 
         file_io = io.BytesIO(content)
-        try:
-            img = Image.open(file_io)
-            texto_bruto = pytesseract.image_to_string(img, lang='por+eng', config='--psm 6 --oem 3')
-        except:
-            # Tenta PDF
-            file_io.seek(0)
-            if b'%PDF' in content[:10]:
-                images = convert_from_bytes(content)
-                texto_bruto = ''
-                for img in images:
-                    texto_bruto += pytesseract.image_to_string(img, lang='por+eng', config='--psm 6 --oem 3') + '\n\n'
-            else:
-                return {"erro": "Não é imagem/PDF válido"}
+        img = Image.open(file_io)
 
-        # Corrige acordes comuns no texto bruto
+        # Tentativas múltiplas de OCR
+        configs = [
+            '--psm 6 --oem 3',  # bloco de texto uniforme
+            '--psm 4 --oem 3',  # linha única
+            '--psm 3 --oem 3'   # totalmente automático
+        ]
+
+        texto_bruto = ''
+        for config in configs:
+            texto = pytesseract.image_to_string(img, lang='por+eng', config=config)
+            if len(texto.strip()) > 50:  # mínimo para considerar válido
+                texto_bruto = texto
+                break
+
+        if not texto_bruto.strip():
+            return {"erro": "Nenhum texto detectado após tentativas"}
+
+        # Corrige acordes no texto bruto
+        texto_bruto = '\n'.join([re.sub(r'\b([A-G]#?b?m?[\d/]*)\b', lambda x: corrigir_acorde(x.group(0)), linha) for linha in texto_bruto.split('\n')])
+
+        # Parsing estruturado
         linhas = texto_bruto.split('\n')
         cifra_parseada = []
-        for linha in linhas:
+        for i, linha in enumerate(linhas, 1):
             if not linha.strip():
                 continue
-            # Tenta separar acordes e letra (simples: acordes em linha superior)
-            acordes = re.findall(r'\b([A-G]#?b?m?[\d/]*)', linha)
+
+            # Tenta separar acordes (linhas superiores) e letra
+            acordes_raw = re.findall(r'\b([A-G]#?b?m?[\d/]*)\b', linha)
             letra = re.sub(r'\b[A-G]#?b?m?[\d/]*\b', '', linha).strip()
-            acordes_corrigidos = [corrigir_acorde_ocr(a) for a in acordes if a.strip()]
+
+            acordes = []
+            posicao_atual = 0
+            for acorde in acordes_raw:
+                posicao = linha.find(acorde, posicao_atual)
+                acordes.append({
+                    "acorde": corrigir_acorde(acorde),
+                    "posicao": posicao
+                })
+                posicao_atual = posicao + len(acorde)
+
             cifra_parseada.append({
-                "acordes": acordes_corrigidos,
+                "linha": i,
+                "acordes": acordes,
                 "letra": letra
             })
 
-        return cifra_parseada if cifra_parseada else {"erro": "Nenhum texto detectado"}
+        return cifra_parseada
 
     except Exception as e:
         return {"erro": str(e)[:200]}
@@ -154,27 +173,25 @@ for idx, row in enumerate(rows[1:], start=2):
     try:
         resultado = extrair_texto_do_arquivo(link_imagem)
         if "erro" in resultado:
-            texto_extraido = resultado["erro"]
-            tom_original = None
             cifra_parseada = []
+            tom_original = None
+            texto_fallback = resultado["erro"]
         else:
             cifra_parseada = resultado
-            texto_bruto = '\n'.join([f"{' '.join(l['acordes'])} {l['letra']}" for l in cifra_parseada])
-            tom_original = detectar_tom_original(texto_bruto) or '?'
-            texto_extraido = texto_bruto  # fallback bruto
+            texto_fallback = '\n'.join([f"{' '.join([a['acorde'] for a in l['acordes']])} {l['letra']}" for l in cifra_parseada])
+            tom_original = detectar_tom_original(texto_fallback) or '?'
 
         ref = db.reference(f'cifras/{slug}')
         ref.set({
             'titulo': titulo,
             'artista': artista,
             'tom_original': tom_original,
-            'cifra_original': texto_extraido,  # fallback
-            'cifra_parseada': cifra_parseada,  # estrutura nova
+            'cifra_parseada': cifra_parseada,
             'url_original': link_imagem,
             'processado_em': str(os.getenv('GITHUB_RUN_NUMBER', 'manual'))
         })
 
-        print(f"OK → {titulo} | {artista} | Tom: {tom_original or '?'} | Slug: {slug}")
+        print(f"OK → {titulo} | {artista} | Tom: {tom_original} | Slug: {slug}")
 
     except Exception as e:
         print(f"Erro na linha {idx} ({titulo}): {str(e)}")
