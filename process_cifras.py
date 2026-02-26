@@ -51,11 +51,16 @@ def detectar_tom_original(texto):
     return None
 
 # Biblioteca de correções (vamos adicionar mais conforme erros aparecerem)
+# ... (imports e configs iniciais permanecem iguais)
+
 def corrigir_acorde(acorde):
+    # Biblioteca de correções (adicionamos mais conforme erros aparecerem)
     correcoes = {
         'DIFE': 'D/F#',
         'DI FE': 'D/F#',
         'D IFE': 'D/F#',
+        'DIFE': 'D/F#',
+        'DIF E': 'D/F#',
         'Fim': 'F#m',
         'Fam': 'F#m',
         'Fame': 'F#m',
@@ -66,11 +71,96 @@ def corrigir_acorde(acorde):
         'I': '/',
         'l': '/',
         ' | ': '/',
-        'E#': '#',  # contexto F#m, Bb
+        'E#': '#',  # contexto Bb, F#m
+        'E': '#',   # em alguns casos de # virando E
     }
     for errado, correto in correcoes.items():
         acorde = acorde.replace(errado, correto)
+    # Corrige múltiplos / ou espaços
+    acorde = re.sub(r'\s*/\s*', '/', acorde)
     return acorde.strip()
+
+def extrair_texto_do_arquivo(url):
+    try:
+        # Ajuste Postimg
+        if 'postimg.cc' in url.lower():
+            if '?dl=1' not in url:
+                url += '&dl=1' if '?' in url else '?dl=1'
+
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, timeout=30, headers=headers, allow_redirects=True)
+
+        if response.status_code != 200:
+            return {"erro": f"Status {response.status_code}"}
+
+        content = response.content
+
+        # Detecta HTML
+        preview = content[:1000].decode('utf-8', errors='ignore').lower()
+        if '<html' in preview or 'postimg' in preview or 'download original' in preview:
+            return {"erro": "HTML de preview detectado"}
+
+        file_io = io.BytesIO(content)
+        img = Image.open(file_io)
+
+        # Tentativas múltiplas de OCR (melhor configuração para cifras)
+        configs = [
+            '--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#b/()[]{}.,:; -',  # bloco + whitelist
+            '--psm 4 --oem 3',  # linha única
+            '--psm 3 --oem 3'   # automático
+        ]
+
+        texto_bruto = ''
+        for config in configs:
+            texto = pytesseract.image_to_string(img, lang='por+eng', config=config)
+            if len(texto.strip()) > 50 and len(re.findall(r'[A-G]#?b?', texto)) > 0:  # tem acordes
+                texto_bruto = texto
+                break
+
+        if not texto_bruto.strip():
+            return {"erro": "Nenhum texto detectado"}
+
+        # Corrige acordes em todo o texto
+        linhas = texto_bruto.split('\n')
+        linhas_corrigidas = []
+        for linha in linhas:
+            linha = re.sub(r'\b([A-G]#?b?m?[\d/]*)\b', lambda x: corrigir_acorde(x.group(0)), linha)
+            linhas_corrigidas.append(linha)
+
+        texto_bruto = '\n'.join(linhas_corrigidas)
+
+        # Parsing estruturado com posição aproximada
+        cifra_parseada = []
+        for i, linha in enumerate(linhas_corrigidas, 1):
+            if not linha.strip():
+                continue
+
+            acordes_raw = re.findall(r'\b([A-G]#?b?m?[\d/]*)\b', linha)
+            letra = re.sub(r'\b[A-G]#?b?m?[\d/]*\b', ' ', linha).strip()  # substitui acordes por espaço para alinhamento
+
+            acordes = []
+            posicao_atual = 0
+            for acorde in acordes_raw:
+                posicao = linha.find(acorde, posicao_atual)
+                acordes.append({
+                    "acorde": corrigir_acorde(acorde),
+                    "posicao": posicao,
+                    "comprimento": len(acorde)
+                })
+                posicao_atual = posicao + len(acorde)
+
+            cifra_parseada.append({
+                "linha": i,
+                "acordes": acordes,
+                "letra": letra
+            })
+
+        return cifra_parseada
+
+    except Exception as e:
+        return {"erro": str(e)[:200]}
+
+# ... (resto do processamento principal permanece igual, salvando 'cifra_parseada')
 
 def extrair_texto_do_arquivo(url):
     try:
