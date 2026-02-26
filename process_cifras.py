@@ -44,80 +44,99 @@ def detectar_tom_original(texto):
     match = re.search(r'(?:tom|tonalidade|key)\s*[:=]\s*([A-G]#?b?)', texto, re.IGNORECASE)
     if match:
         tom = match.group(1).upper().replace('BB', 'B').replace('B', 'Bb')
-        return tom if tom in ['C','C#','Db','D','D#','Eb','E','F','F#','Gb','G','G#','Ab','A','A#','Bb','B'] else 'C'
+        return tom if tom in ['C','C#','Db','D','D#','Eb','E','F','F#','Gb','G','G#','Ab','A','A#','Bb','B'] else None
     
-    # Senão pega o primeiro acorde plausível
+    # Primeiro acorde plausível
     acordes_inicio = re.findall(r'\b([A-G]#?b?)(m|°|aug|dim|sus|add|maj|min|7|9|11|13)?\b', texto[:500], re.IGNORECASE)
     if acordes_inicio:
         return acordes_inicio[0][0].upper()
-    return 'C'
+    return None
+
+# Pós-processamento simples para erros comuns do OCR
+def corrigir_acorde_ocr(acorde):
+    correcoes = {
+        'Fim': 'F#m',
+        'Fam': 'F#m',
+        'Fame': 'F#m',
+        'F#m D': 'F#m/D',
+        'DIFE': 'D/F#',
+        'D IFE': 'D/F#',
+        'DI FE': 'D/F#',
+        'F#M': 'F#m',
+        'F# m': 'F#m',
+        'Bb': 'A#',  # ou Bb se preferir manter
+        'rn': 'm',   # rn comum para m
+    }
+    for errado, correto in correcoes.items():
+        acorde = acorde.replace(errado, correto)
+    # Corrige / virando I ou l
+    acorde = acorde.replace('I', '/').replace('l', '/').replace(' | ', '/')
+    return acorde.strip()
 
 def extrair_texto_do_arquivo(url):
     try:
-        # Ajuste automático para Postimg: adiciona ?dl=1 para download direto
+        # Ajuste para Postimg (dl=1)
         if 'postimg.cc' in url.lower() or 'i.postimg.cc' in url.lower():
             if '?dl=1' not in url and '&dl=1' not in url:
-                if '?' in url:
-                    url += '&dl=1'
-                else:
-                    url += '?dl=1'
-            print(f"Link Postimg ajustado para download direto: {url}")
+                url += '&dl=1' if '?' in url else '?dl=1'
 
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, timeout=30, headers=headers, allow_redirects=True, stream=True)
-
-        print(f"Status do download: {response.status_code} | URL final: {response.url}")
-        print(f"Content-Type recebido: {response.headers.get('Content-Type', 'desconhecido')}")
-        print(f"Tamanho do content: {len(response.content)} bytes")
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, timeout=30, headers=headers, allow_redirects=True)
 
         if response.status_code != 200:
-            return f"[ERRO Download] Status {response.status_code} - {response.text[:200]}"
+            return {"erro": f"Status {response.status_code}"}
 
-        content = b''
-        for chunk in response.iter_content(chunk_size=8192):
-            content += chunk
+        content = response.content
 
-        # Detecta se veio HTML de erro/preview
-        try:
-            content_preview = content[:2000].decode('utf-8', errors='ignore').lower()
-            if '<html' in content_preview or 'postimg' in content_preview or 'download original image' in content_preview or 'couldn\'t preview' in content_preview:
-                return "[ERRO] Recebido página HTML de preview em vez da imagem direta. Verifique se o link é raw/direct."
-        except:
-            pass
+        # Detecta HTML indesejado
+        preview = content[:1000].decode('utf-8', errors='ignore').lower()
+        if '<html' in preview or 'postimg' in preview or 'download original' in preview:
+            return {"erro": "HTML de preview detectado"}
 
-        # Tenta abrir como imagem
         file_io = io.BytesIO(content)
         try:
             img = Image.open(file_io)
-            texto = pytesseract.image_to_string(img, lang='por+eng', config='--psm 6')
-            return texto.strip() or "[Imagem baixada, mas nenhum texto detectado]"
-        except Exception as img_err:
-            print(f"Erro ao abrir como imagem: {str(img_err)}")
-            # Tenta como PDF (caso raro)
+            texto_bruto = pytesseract.image_to_string(img, lang='por+eng', config='--psm 6 --oem 3')
+        except:
+            # Tenta PDF
             file_io.seek(0)
             if b'%PDF' in content[:10]:
                 images = convert_from_bytes(content)
-                texto = ''
+                texto_bruto = ''
                 for img in images:
-                    texto += pytesseract.image_to_string(img, lang='por+eng') + '\n\n'
-                return texto.strip()
+                    texto_bruto += pytesseract.image_to_string(img, lang='por+eng', config='--psm 6 --oem 3') + '\n\n'
             else:
-                return f"[ERRO] Não é imagem/PDF válido: {str(img_err)} - Tamanho: {len(content)} bytes"
+                return {"erro": "Não é imagem/PDF válido"}
 
-    except requests.exceptions.RequestException as req_err:
-        return f"[ERRO de rede] {str(req_err)}"
+        # Corrige acordes comuns no texto bruto
+        linhas = texto_bruto.split('\n')
+        cifra_parseada = []
+        for linha in linhas:
+            if not linha.strip():
+                continue
+            # Tenta separar acordes e letra (simples: acordes em linha superior)
+            acordes = re.findall(r'\b([A-G]#?b?m?[\d/]*)', linha)
+            letra = re.sub(r'\b[A-G]#?b?m?[\d/]*\b', '', linha).strip()
+            acordes_corrigidos = [corrigir_acorde_ocr(a) for a in acordes if a.strip()]
+            cifra_parseada.append({
+                "acordes": acordes_corrigidos,
+                "letra": letra
+            })
+
+        return cifra_parseada if cifra_parseada else {"erro": "Nenhum texto detectado"}
+
     except Exception as e:
-        return f"[ERRO AO EXTRAIR] {str(e)[:200]}"
+        return {"erro": str(e)[:200]}
 
 # Processamento principal
 rows = sheet.get_all_values()
 processadas = set()
 
-for idx, row in enumerate(rows[1:], start=2):  # pula cabeçalho
+for idx, row in enumerate(rows[1:], start=2):
     if len(row) < 8:
         continue
     
-    link_imagem = (row[7] or '').strip()  # Coluna H = índice 7
+    link_imagem = (row[7] or '').strip()
     if not link_imagem:
         continue
 
@@ -133,20 +152,29 @@ for idx, row in enumerate(rows[1:], start=2):  # pula cabeçalho
     processadas.add(slug)
 
     try:
-        texto_extraido = extrair_texto_do_arquivo(link_imagem)
-        tom_original = detectar_tom_original(texto_extraido)
+        resultado = extrair_texto_do_arquivo(link_imagem)
+        if "erro" in resultado:
+            texto_extraido = resultado["erro"]
+            tom_original = None
+            cifra_parseada = []
+        else:
+            cifra_parseada = resultado
+            texto_bruto = '\n'.join([f"{' '.join(l['acordes'])} {l['letra']}" for l in cifra_parseada])
+            tom_original = detectar_tom_original(texto_bruto) or '?'
+            texto_extraido = texto_bruto  # fallback bruto
 
         ref = db.reference(f'cifras/{slug}')
         ref.set({
             'titulo': titulo,
             'artista': artista,
             'tom_original': tom_original,
-            'cifra_original': texto_extraido,
+            'cifra_original': texto_extraido,  # fallback
+            'cifra_parseada': cifra_parseada,  # estrutura nova
             'url_original': link_imagem,
             'processado_em': str(os.getenv('GITHUB_RUN_NUMBER', 'manual'))
         })
 
-        print(f"OK → {titulo} | {artista} | Tom: {tom_original} | Slug: {slug}")
+        print(f"OK → {titulo} | {artista} | Tom: {tom_original or '?'} | Slug: {slug}")
 
     except Exception as e:
         print(f"Erro na linha {idx} ({titulo}): {str(e)}")
