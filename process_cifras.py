@@ -30,7 +30,7 @@ scopes = [
 ]
 creds = Credentials.from_service_account_info(cred_dict, scopes=scopes)
 client = gspread.authorize(creds)
-sheet = client.open_by_id(SHEET_ID).worksheet(ABA_NOME)
+sheet = client.open_by_key(SHEET_ID).worksheet(ABA_NOME)
 
 def gerar_slug(titulo, artista):
     text = f"{titulo} {artista}".lower().strip()
